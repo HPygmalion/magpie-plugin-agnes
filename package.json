@@ -1,7 +1,7 @@
 {
   "name": "magpie-plugin-agnes",
-  "version": "0.2.2",
-  "description": "Agnes AI 国内与国际双版 API 插件：支持生图独立单列、免费模型标注与「只选免费」、512K/1M 上下文及 64K 输出、自动排除视频模型",
+  "version": "0.3.1",
+  "description": "🇨🇳 Agnes AI 国内/国际双版 API 插件：标记免费（一键只选免费）、512K/1M 大上下文+64K 输出、彻底排除生图与视频模型干扰",
   "type": "module",
   "main": "./opencode.mjs",
   "exports": {
@@ -9,7 +9,6 @@
   },
   "files": [
     "index.mjs",
-    "images.mjs",
     "opencode.mjs",
     "README.md",
     "LICENSE"
@@ -30,8 +29,8 @@
     "test": "node --test"
   },
   "magpie": {
-    "name": "Agnes AI (国内/国际双API·支持生图)",
-    "description": "支持国内与国际双版 API 直连；标记免费模型与 512K/1M 上下文（支持一键「只选免费」）；支持图像模型独立单列与生图适配；自动排除视频模型。",
+    "name": "Agnes AI (国内/国际双API · 免费大上下文)",
+    "description": "🇨🇳 国内与国际双版 API 直连 · 🌟 标记免费（一键「只选免费」）· ⚡️ 512K/1M 大上下文 + 64K 输出 · 🚫 彻底排除生图与视频模型干扰",
     "icon": "https://www.agnes-ai.com/images/biglogo.png"
   }
 }

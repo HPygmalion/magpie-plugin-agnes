@@ -1,5 +1,3 @@
-import { agnesFetch, imageModelID, upstreamModelID } from "./images.mjs"
-
 const LOGO = "https://www.agnes-ai.com/images/biglogo.png"
 
 const SITES = {
@@ -16,92 +14,77 @@ const TEXT_MODELS = {
   "agnes-2.5-pro-beta": { name: "Agnes 2.5 Pro Beta", context: 1048576, output: 65536, free: false },
 }
 
-// Documented Agnes image generation models.
-// Image models in trial tier are free.
-const IMAGE_MODELS = {
-  "agnes-image-2.5-flash": { name: "Agnes Image 2.5 Flash", free: true },
-  "agnes-image-2.1-flash": { name: "Agnes Image 2.1 Flash", free: true },
-}
-
-function modelKind(model) {
+function isChatModel(model) {
   const id = String(model?.id ?? "").trim()
   const outputs = model.modalities?.output ?? model.output_modalities
 
-  // 1. Any video models are filtered out
-  if (/^agnes-video(?:-|$)/i.test(id) || /video/i.test(id) || outputs?.includes?.("video")) {
-    return "video"
-  }
-
-  // 2. Any image generation models are classified as "image"
+  // 1. Any video models or image generation models are strictly filtered out from chat
   if (
-    /^agnes-image(?:-|$)/i.test(id) ||
-    /(image|flux|cogview|seedream|dall-e)/i.test(id) ||
+    /^agnes-(?:video|image)(?:-|$)/i.test(id) ||
+    /(video|image|flux|cogview|seedream|dall-e)/i.test(id) ||
+    outputs?.includes?.("video") ||
     outputs?.includes?.("image")
   ) {
-    return "image"
+    return false
   }
 
-  // 3. Text chat models:
+  // 2. Pure text models:
   // - Either explicit output modalities say text
   // - Or is known text model in TEXT_MODELS
-  // - Or follows the standard Agnes model naming pattern: agnes-<version>-<tier> (e.g. agnes-3.5-pro, agnes-4.0-flash)
+  // - Or follows the standard Agnes model naming pattern: agnes-<version>-<tier>
   if (Array.isArray(outputs) && outputs.length > 0 && outputs.every((k) => k === "text")) {
-    return "text"
+    return true
   }
   if (Object.hasOwn(TEXT_MODELS, id) || /^agnes-(?:[0-9]|v[0-9])/i.test(id)) {
-    return "text"
+    return true
   }
 
-  return "unsupported"
+  return false
 }
 
 function modelRow(model, site) {
-  const kind = modelKind(model)
-  const isImage = kind === "image"
   const knownText = TEXT_MODELS[model.id]
-  const knownImage = IMAGE_MODELS[model.id]
-
-  const id = isImage ? imageModelID(model.id) : model.id
-  const displayName = isImage
-    ? (knownImage?.name ?? model.name ?? model.id)
-    : (knownText?.name ?? model.name ?? model.id)
+  const displayName = knownText?.name ?? model.name ?? model.id
 
   const isFlash = /flash/i.test(model.id)
-  const isFree = isImage ? true : (knownText?.free ?? isFlash)
-  const seesImages = isImage || !!knownText || /^agnes-/i.test(model.id)
+  const isFree = knownText?.free ?? isFlash
+  const seesImages = !!knownText || /^agnes-/i.test(model.id)
 
   const defaultContext = /pro/i.test(model.id) ? 1048576 : 524288
   const context = knownText?.context ?? (model.context_window || model.context_length || defaultContext)
   const output = knownText?.output ?? (model.max_tokens || 65536)
 
   return {
-    id,
+    id: model.id,
     providerID: site.id,
     name: displayName,
     api: { id: model.id, url: site.baseURL, npm: "@ai-sdk/openai-compatible" },
     status: "active",
     limit: {
-      context: isImage ? 0 : context,
-      input: isImage ? 0 : context,
-      output: isImage ? 0 : output,
+      context,
+      input: context,
+      output,
     },
     modalities: {
       input: seesImages ? ["text", "image"] : ["text"],
-      output: isImage ? ["image"] : ["text"],
+      output: ["text"],
     },
     free: isFree,
     capabilities: {
-      temperature: !isImage,
-      reasoning: !isImage,
+      temperature: true,
+      reasoning: true,
       attachment: seesImages,
-      toolcall: !isImage,
+      toolcall: true,
       input: { text: true, image: seesImages, audio: false, video: false, pdf: false },
-      output: { text: !isImage, image: isImage, audio: false, video: false, pdf: false },
+      output: { text: true, image: false, audio: false, video: false, pdf: false },
       interleaved: false,
     },
     headers: {},
     options: {},
-    variants: {},
+    variants: {
+      none: {},
+      high: {},
+    },
   }
 }
 
@@ -123,9 +106,6 @@ function createPlugin(site, fetchImpl = globalThis.fetch) {
           ...Object.fromEntries(
             Object.keys(TEXT_MODELS).map((id) => [id, modelRow({ id }, site)])
           ),
-          ...Object.fromEntries(
-            Object.keys(IMAGE_MODELS).map((id) => [imageModelID(id), modelRow({ id }, site)])
-          ),
           ...(cfg.provider[site.id]?.models ?? {}),
         },
       }
@@ -140,7 +120,13 @@ function createPlugin(site, fetchImpl = globalThis.fetch) {
         return {
           baseURL: site.baseURL,
           apiKey: key,
-          fetch: agnesFetch(site.baseURL, fetchImpl),
+          fetch(input, init) {
+            const url = new URL(input instanceof Request ? input.url : input)
+            if (url.origin + url.pathname !== `${site.baseURL}/chat/completions`) {
+              throw new Error("Agnes 插件仅允许本站 Chat Completions 请求")
+            }
+            return fetchImpl(input, { ...init, redirect: "error" })
+          },
         }
       },
     },
@@ -165,7 +151,7 @@ function createPlugin(site, fetchImpl = globalThis.fetch) {
         }
         const rows = body.data
           .map((m) => ({ ...m, id: m.id.trim() }))
-          .filter((m) => ["text", "image"].includes(modelKind(m)))
+          .filter(isChatModel)
           .map((m) => modelRow(m, site))
         return Object.fromEntries(rows.map((row) => [row.id, row]))
       },
@@ -179,10 +165,7 @@ export const _internal = {
   SITES,
   LOGO,
   createPlugin,
-  modelKind,
+  isChatModel,
   modelRow,
   TEXT_MODELS,
-  IMAGE_MODELS,
-  imageModelID,
-  upstreamModelID,
 }
