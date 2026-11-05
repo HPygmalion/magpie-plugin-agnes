@@ -24,11 +24,34 @@ const IMAGE_MODELS = {
 }
 
 function modelKind(model) {
+  const id = String(model?.id ?? "").trim()
   const outputs = model.modalities?.output ?? model.output_modalities
-  if (/^agnes-video(?:-|$)/i.test(model.id) || outputs?.includes?.("video")) return "video"
-  if (/^agnes-image(?:-|$)/i.test(model.id) || outputs?.includes?.("image")) return "image"
-  if (Array.isArray(outputs) && outputs.length > 0 && outputs.every((k) => k === "text")) return "text"
-  if (Object.hasOwn(TEXT_MODELS, model.id)) return "text"
+
+  // 1. Any video models are filtered out
+  if (/^agnes-video(?:-|$)/i.test(id) || /video/i.test(id) || outputs?.includes?.("video")) {
+    return "video"
+  }
+
+  // 2. Any image generation models are classified as "image"
+  if (
+    /^agnes-image(?:-|$)/i.test(id) ||
+    /(image|flux|cogview|seedream|dall-e)/i.test(id) ||
+    outputs?.includes?.("image")
+  ) {
+    return "image"
+  }
+
+  // 3. Text chat models:
+  // - Either explicit output modalities say text
+  // - Or is known text model in TEXT_MODELS
+  // - Or follows the standard Agnes model naming pattern: agnes-<version>-<tier> (e.g. agnes-3.5-pro, agnes-4.0-flash)
+  if (Array.isArray(outputs) && outputs.length > 0 && outputs.every((k) => k === "text")) {
+    return "text"
+  }
+  if (Object.hasOwn(TEXT_MODELS, id) || /^agnes-(?:[0-9]|v[0-9])/i.test(id)) {
+    return "text"
+  }
+
   return "unsupported"
 }
 
@@ -43,8 +66,13 @@ function modelRow(model, site) {
     ? (knownImage?.name ?? model.name ?? model.id)
     : (knownText?.name ?? model.name ?? model.id)
 
-  const isFree = isImage ? true : (knownText?.free === true)
-  const seesImages = isImage || !!knownText
+  const isFlash = /flash/i.test(model.id)
+  const isFree = isImage ? true : (knownText?.free ?? isFlash)
+  const seesImages = isImage || !!knownText || /^agnes-/i.test(model.id)
+
+  const defaultContext = /pro/i.test(model.id) ? 1048576 : 524288
+  const context = knownText?.context ?? (model.context_window || model.context_length || defaultContext)
+  const output = knownText?.output ?? (model.max_tokens || 65536)
 
   return {
     id,
@@ -53,9 +81,9 @@ function modelRow(model, site) {
     api: { id: model.id, url: site.baseURL, npm: "@ai-sdk/openai-compatible" },
     status: "active",
     limit: {
-      context: knownText?.context ?? 0,
-      input: knownText?.context ?? 0,
-      output: knownText?.output ?? 0,
+      context: isImage ? 0 : context,
+      input: isImage ? 0 : context,
+      output: isImage ? 0 : output,
     },
     modalities: {
       input: seesImages ? ["text", "image"] : ["text"],
@@ -64,9 +92,9 @@ function modelRow(model, site) {
     free: isFree,
     capabilities: {
       temperature: !isImage,
-      reasoning: !isImage && !!knownText,
+      reasoning: !isImage,
       attachment: seesImages,
-      toolcall: !isImage && !!knownText,
+      toolcall: !isImage,
       input: { text: true, image: seesImages, audio: false, video: false, pdf: false },
       output: { text: !isImage, image: isImage, audio: false, video: false, pdf: false },
       interleaved: false,

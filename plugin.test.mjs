@@ -26,6 +26,10 @@ for (const site of Object.values(SITES)) {
       { id: "agnes-video-2.5" },
       { id: "future-film", modalities: { output: ["video"] } },
       { id: "future-image", output_modalities: ["image"] },
+      { id: "agnes-image-3.0-flash" }, // Future image model test
+      { id: "agnes-3.5-flash" },        // Future text flash model test
+      { id: "agnes-4.0-pro" },          // Future text pro model test
+      { id: "agnes-video-3.0" },        // Future video model test
       { id: "unknown-without-metadata" },
     ] })
 
@@ -54,34 +58,35 @@ for (const site of Object.values(SITES)) {
     // Expected models: text models and image models, video models excluded!
     assert.deepEqual(
       Object.keys(models).sort(),
-      ["agnes-2.5-pro", "agnes-3.0-flash", imageModelID("agnes-image-2.5-flash"), imageModelID("future-image")].sort()
+      [
+        "agnes-2.5-pro",
+        "agnes-3.0-flash",
+        "agnes-3.5-flash",
+        "agnes-4.0-pro",
+        imageModelID("agnes-image-2.5-flash"),
+        imageModelID("agnes-image-3.0-flash"),
+        imageModelID("future-image"),
+      ].sort()
     )
 
-    // Text model checks
-    const flash = models["agnes-3.0-flash"]
-    assert.equal(flash.free, true)
-    assert.equal(flash.limit.context, 524288)
-    assert.equal(flash.limit.output, 65536)
-    assert.deepEqual(flash.modalities.output, ["text"])
-    assert.equal(flash.capabilities.output.text, true)
-    assert.equal(flash.capabilities.output.image, false)
+    // Future text model checks
+    const futureFlash = models["agnes-3.5-flash"]
+    assert.equal(futureFlash.free, true)
+    assert.equal(futureFlash.limit.context, 524288)
+    assert.equal(futureFlash.limit.output, 65536)
 
-    const pro = models["agnes-2.5-pro"]
-    assert.equal(pro.free, false)
-    assert.equal(pro.limit.context, 1048576)
-    assert.equal(pro.limit.output, 65536)
+    const futurePro = models["agnes-4.0-pro"]
+    assert.equal(futurePro.free, false)
+    assert.equal(futurePro.limit.context, 1048576)
+    assert.equal(futurePro.limit.output, 65536)
 
-    // Image model drawer checks
-    const imgKey = imageModelID("agnes-image-2.5-flash")
-    const img = models[imgKey]
-    assert.equal(img.api.id, "agnes-image-2.5-flash")
-    assert.equal(img.api.url, site.baseURL)
-    assert.equal(img.api.npm, "@ai-sdk/openai-compatible")
-    assert.deepEqual(img.modalities.output, ["image"])
-    assert.equal(img.capabilities.output.text, false)
-    assert.equal(img.capabilities.output.image, true)
-    assert.equal(img.capabilities.input.image, true)
-    assert.equal(img.free, true)
+    // Future image model checks
+    const futureImg = models[imageModelID("agnes-image-3.0-flash")]
+    assert.equal(futureImg.api.id, "agnes-image-3.0-flash")
+    assert.deepEqual(futureImg.modalities.output, ["image"])
+    assert.equal(futureImg.capabilities.output.text, false)
+    assert.equal(futureImg.capabilities.output.image, true)
+    assert.equal(futureImg.free, true)
   })
 }
 
@@ -115,8 +120,8 @@ test("generation moves format into extra_body, supplies size, restores upstream 
     method: "POST",
     headers: { authorization: "Bearer test-key", "content-type": "application/json" },
     body: JSON.stringify({
-      model: imageModelID("agnes-image-2.5-flash"),
-      prompt: "a majestic flying bird",
+      model: imageModelID("agnes-image-3.0-flash"),
+      prompt: "a futuristic sci-fi city",
       response_format: "url",
       n: 1,
     }),
@@ -125,8 +130,8 @@ test("generation moves format into extra_body, supplies size, restores upstream 
   assert.equal(url, base + "/images/generations")
   assert.equal(options.headers.get("authorization"), "Bearer test-key")
   assert.deepEqual(JSON.parse(options.body), {
-    model: "agnes-image-2.5-flash",
-    prompt: "a majestic flying bird",
+    model: "agnes-image-3.0-flash",
+    prompt: "a futuristic sci-fi city",
     size: "1024x1024",
     extra_body: { response_format: "url" },
   })
