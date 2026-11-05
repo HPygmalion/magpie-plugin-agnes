@@ -1,13 +1,37 @@
 # magpie-plugin-agnes
 
-Agnes AI 国内版 / 国际版 API Key 插件，面向 Magpie 的 OpenCode 1.x 插件宿主。无外部依赖，不启动浏览器，不读取 Cookie，不发送遥测。
+> **Agnes AI 国内与国际双版 API 插件，专为 Magpie 设计。轻量免登录浏览器，支持图像模型独立抽离与免费过滤。**
 
-| 入口 | Provider ID | API Base URL | 默认模型 |
+---
+
+### 🌟 四大核心亮点
+
+1. **支持国内与国际双版 API 直连**  
+   * **国内版**（`https://api.agnes-ai.cn/v1` · ID: `agnes-cn`）与**国际版**（`https://apihub.agnes-ai.com/v1` · ID: `agnes-ai`）双入口独立存在。  
+   * 直接填入对应站点的 API Key 即可使用，无需复杂的后台无头 Chrome 抓 Cookie 流程，网络与代理配置互不干扰。
+
+2. **精准标记免费模型与上下文窗口**  
+   * **免费标记**：对接官方定价文档，`agnes-2.5-flash`、`agnes-3.0-flash` 及生图模型（体验期 ¥0）均标注 `free: true`，在 Magpie 弹窗中**自动激活并展示绿色的「只选免费」一键过滤按钮**。  
+   * **完整上下文与 64K 输出**：Flash 标明 512K 上下文，Pro 标明 1.0M 上下文（药丸显示 `1.0M` 角标）；全系文本模型准确配置 **65,536 tokens（64K）** 单次最大输出上限。
+
+3. **支持图像模型独立单列（对标 Loomy / Antigravity）**  
+   * **专属区域抽离**：利用 Magpie 底层 `ImagesAPI` 别名机制，将生图模型（`agnes-image-2.5-flash` 等）自动归入弹窗底部的**「图像模型」**独立栏目。  
+   * **Agent 对话隔离**：图像模型不在 Agent 聊天的候选列表中干扰，可在「设置 → 图像」中作为主力生图模型勾选。  
+   * **生图协议自动适配**：发出请求时自动将 `response_format` 规范化置入 `extra_body`，支持图生图参考图转换，还原真实官方 ID。
+
+4. **全自动排除视频模型**  
+   * 彻底拦截并过滤 `agnes-video-*` 及一切包含视频输出的模型，即使上游后续发布新的视频模型也不会混入对话或出图清单。
+
+---
+
+## 插件概览
+
+| 入口 | Provider ID | API Base URL | 默认预填模型 |
 | --- | --- | --- | --- |
-| 国际版 API | `agnes-ai` | `https://apihub.agnes-ai.com/v1` | 内置核心对话模型与生图模型 |
-| 国内版 API | `agnes-cn` | `https://api.agnes-ai.cn/v1` | 内置核心对话模型与生图模型 |
+| 国际版 API | `agnes-ai` | `https://apihub.agnes-ai.com/v1` | 内置 4 个核心文本模型 + 2 个生图模型 |
+| 国内版 API | `agnes-cn` | `https://api.agnes-ai.cn/v1` | 内置 4 个核心文本模型 + 2 个生图模型 |
 
-两个入口分别填写对应站点的 API Key。密钥由 Magpie 统一保存，插件不另写凭据文件。
+两个入口各自独立管理 API Key。密钥由 Magpie 统一保存，插件不另写凭据文件。
 
 ---
 
@@ -25,42 +49,16 @@ github:HPygmalion/magpie-plugin-agnes
 magpie plugin add github:HPygmalion/magpie-plugin-agnes
 ```
 
-安装后进入「模型 → 供应商」，点击添加/编辑对应入口并填入 API Key 即可。
+安装后进入「模型 → 供应商」，点击添加对应入口并填入对应站点的 API Key 即可。
 
 ---
 
-## 核心特性
+## 上游模型动态更新与前向兼容
 
-### 1. 独立「图像模型」抽离展示（对标 Loomy / Antigravity）
-* **自动单列**：针对 Agnes 的生图模型（如 `agnes-image-2.5-flash`、`agnes-image-2.1-flash`），通过标准白名单兼容别名（`-imagen` 后缀），使其能被 Magpie 底层 `gateway.Drawers` 精准捕获并自动放置在弹窗底部的**「图像模型」**区域中。
-* **Agent 对话隔离**：图像模型不会出现在 Agent 对话模型的候选列表里。生图模型在 Magpie 的「设置 → 图像」中作为主力出图模型勾选使用。
-* **生图协议自动适配**：
-  * 请求发出前自动还原为官方真实 ID（`agnes-image-2.5-flash`）。
-  * 自动将 `response_format` 规范化放入 `extra_body.response_format`。
-  * 图生图 / 编辑请求自动将参考图转换为 Data URI 并注入 `extra_body.image`。
-  * 默认尺寸智能补全（`1024x1024`）。
-
-### 2. 免费模型与「只选免费」按钮
-* **免费模型标记**：根据 Agnes 官方定价文档，`agnes-2.5-flash`、`agnes-3.0-flash` 以及生图模型在体验期均为 ¥0 免费，已标注 `free: true`。
-* **快速过滤**：Magpie 检测到免费模型后，会在弹窗的「模型」区域自动提供 **`只选免费`** 操作按钮，一键仅保留免费模型。
-
-### 3. 上下文与最大输出（64K）
-* **上下文窗口**：
-  * Flash 系列：**512K**（524,288 tokens）
-  * Pro 系列：**1.0M**（1,048,576 tokens，药丸右侧显示 `1.0M` 角标）
-* **单次最大输出**：全系列文本模型最大回复 token 均已完整配置为 **65,536 tokens（64K）**，作为 `max_tokens` 准确透传给 Agent。
-
-### 4. 彻底排除视频模型
-* `agnes-video-*` 及包含 `video` 输出的模型已被彻底过滤，不混入对话或出图列表中。
-
-### 5. 官方 Logo 支持
-* 自动配置 Agnes AI 官方 Logo（`https://www.agnes-ai.com/images/biglogo.png`），在供应商弹窗与列表头部正常显示图标。
-
-### 6. 上游模型动态更新与前向兼容
-当 Agnes 官方未来更新上游 `/v1/models` 列表时，在供应商弹窗点击「重新获取模型」即可自动无缝适配，无需更新插件代码：
-* **新出的图像模型**（命名符合 `agnes-image-*` 或上游声明了 image 输出）：插件动态将其归入「图像模型」专属区域，别名转换与生图请求适配器自动生效；
-* **新出的对话模型**（如 `agnes-3.5-pro`、`agnes-4.0-flash` 等）：自动识别并挂入对话模型列表，Flash 系列自动延续免费标记；
-* **新出的视频模型**（如 `agnes-video-3.0` 等）：自动拦截过滤，绝不混入对话列表。
+当 Agnes 官方未来更新上游 `/v1/models` 接口时，点击供应商界面的「重新获取模型」即可自动无缝适配，无需升级插件代码：
+* **新出图模型**（符合 `agnes-image-*` 或声明了 image 输出）：自动归入底部的「图像模型」独立区域，别名转换与生图请求适配器自动生效；
+* **新对话模型**（如 `agnes-3.5-pro`、`agnes-4.0-flash`）：自动识别并挂入对话模型列表，Flash 系列自动延续免费标记；
+* **新视频模型**（如 `agnes-video-3.0`）：自动拦截过滤丢弃，绝不污染对话列表。
 
 ---
 
@@ -77,9 +75,9 @@ bun test
 ```
 
 测试覆盖：
-- 国际与国内双 Provider 配置与 Logo 属性
+- 国际与国内双 Provider 配置与官方 Logo 属性
 - 初始预填模型与动态拉取过滤
-- 未来新版本模型的前向兼容解析测试（动态识别新生图模型与新对话模型）
+- 上游新发布模型的前向兼容解析测试（动态识别新生图模型与新对话模型）
 - 免费标志、上下文窗口与 64K 输出上限校验
 - 图像模型别名映射与独立图像抽离标记
 - 图像生成与编辑的协议转换（`extra_body`、尺寸补全、Data URI 格式化）
