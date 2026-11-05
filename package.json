@@ -1,6 +1,6 @@
 {
   "name": "magpie-plugin-agnes",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "description": "🇨🇳 Agnes AI 国内/国际双版 API 插件：支持独立图像模型单列、标记免费模型（一键「只选免费」不误选生图）、512K/1M 大上下文+64K 输出、排除视频模型",
   "type": "module",
   "main": "./opencode.mjs",

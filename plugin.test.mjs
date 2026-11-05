@@ -27,8 +27,8 @@ for (const site of Object.values(SITES)) {
       { id: "future-film", modalities: { output: ["video"] } },
       { id: "future-image", output_modalities: ["image"] },
       { id: "agnes-image-3.0-flash" },
-      { id: "agnes-3.5-flash" },
-      { id: "agnes-4.0-pro" },
+      { id: "agnes-3.5-flash" }, // Unknown future model without documented free
+      { id: "agnes-4.0-pro", context_window: 65536, max_tokens: 8192 }, // Supplies valid limits
       { id: "agnes-video-3.0" },
       { id: "unknown-without-metadata" },
     ] })
@@ -69,7 +69,7 @@ for (const site of Object.values(SITES)) {
       ].sort()
     )
 
-    // Text model checks: Flash is free, Pro is paid, both have reasoning variants
+    // Known Flash text model: verified free & limits
     const flash = models["agnes-3.0-flash"]
     assert.equal(flash.free, true)
     assert.equal(flash.limit.context, 524288)
@@ -79,11 +79,25 @@ for (const site of Object.values(SITES)) {
     assert.equal(flash.capabilities.output.image, false)
     assert.deepEqual(Object.keys(flash.variants), ["none", "high"])
 
+    // Known Pro text model: paid, 1M context, 64K output
     const pro = models["agnes-2.5-pro"]
     assert.equal(pro.free, false)
     assert.equal(pro.limit.context, 1048576)
     assert.equal(pro.limit.output, 65536)
     assert.deepEqual(Object.keys(pro.variants), ["none", "high"])
+
+    // Future unknown flash model: must NOT guess free=true from name!
+    const futureFlash = models["agnes-3.5-flash"]
+    assert.equal(futureFlash.free, false)
+    assert.equal(futureFlash.limit.context, 0)
+    assert.equal(futureFlash.limit.output, 0)
+    assert.deepEqual(Object.keys(futureFlash.variants), [])
+
+    // Future unknown pro model with supplied limits: honors validated integers
+    const futurePro = models["agnes-4.0-pro"]
+    assert.equal(futurePro.free, false)
+    assert.equal(futurePro.limit.context, 65536)
+    assert.equal(futurePro.limit.output, 8192)
 
     // Image model drawer checks: free must be false so "只选免费" doesn't select them into chat!
     const imgKey = imageModelID("agnes-image-2.5-flash")
@@ -94,9 +108,17 @@ for (const site of Object.values(SITES)) {
     assert.deepEqual(img.modalities.output, ["image"])
     assert.equal(img.capabilities.output.text, false)
     assert.equal(img.capabilities.output.image, true)
-    assert.equal(img.free, false) // Crucial! Keeps "只选免费" chat-only!
+    assert.equal(img.free, false)
   })
 }
+
+test("modelKind respects explicit output modalities over name heuristics", () => {
+  const { modelKind } = _internal
+  // Explicit audio output is unsupported even if name has agnes-
+  assert.equal(modelKind({ id: "agnes-4.0-audio", modalities: { output: ["audio"] } }), "unsupported")
+  // Explicit text output is text even if name has image
+  assert.equal(modelKind({ id: "agnes-image-reader", modalities: { output: ["text"] } }), "text")
+})
 
 test("entry exports only the two plugins; missing auth causes no network request", async () => {
   assert.deepEqual(Object.keys(entry).sort(), ["AgnesAIPlugin", "AgnesCNPlugin"])
@@ -169,36 +191,88 @@ test("JSON references and native size/ratio survive the edit adapter", async () 
   })
 })
 
-test("multipart files become JSON data URIs; mask and multiple-output fail before fetch", async () => {
+test("multipart preserves exact insertion order of mixed image fields and parses boolean return_base64", async () => {
   const recorded = recorder()
   const adapter = agnesFetch(base, recorded.fetch)
   const form = new FormData()
   form.set("model", imageModelID("agnes-image-2.5-flash"))
-  form.set("prompt", "edit photo")
+  form.set("prompt", "edit photo in order")
   form.set("response_format", "b64_json")
-  form.append("image[]", new Blob(["fake-image-bytes"], { type: "image/png" }), "ref.png")
-  form.append("image[]", "https://example.com/ref2.png")
+  form.set("return_base64", "true") // String from multipart form
+  // Interleave image[] and image to test exact insertion order preservation
+  form.append("image[]", "https://example.com/first.png")
+  form.append("image", "https://example.com/second.png")
+  form.append("image[]", "https://example.com/third.png")
 
   await adapter(base + "/images/edits", { method: "POST", body: form })
   const payload = JSON.parse(recorded.calls[0].options.body)
   assert.equal(payload.model, "agnes-image-2.5-flash")
+  assert.equal(payload.return_base64, true)
   assert.deepEqual(payload.extra_body.image, [
-    "data:image/png;base64,ZmFrZS1pbWFnZS1ieXRlcw==",
-    "https://example.com/ref2.png",
+    "https://example.com/first.png",
+    "https://example.com/second.png",
+    "https://example.com/third.png",
   ])
   assert.equal(payload.extra_body.response_format, "b64_json")
+})
 
-  form.set("mask", new Blob(["mask"], { type: "image/png" }))
-  await assert.rejects(adapter(base + "/images/edits", { method: "POST", body: form }), /mask/)
+test("rejects nested mask and sanitizes nested image bypass", async () => {
+  const recorded = recorder()
+  const adapter = agnesFetch(base, recorded.fetch)
 
-  for (const fields of [{ n: 2 }, { mask: "x" }, { image: "file:///local.png" }]) {
-    await assert.rejects(adapter(base + "/images/generations", {
+  // Top-level mask rejected
+  await assert.rejects(
+    adapter(base + "/images/generations", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model: "agnes-image-2.5-flash", prompt: "cat", ...fields }),
-    }))
-  }
-  assert.equal(recorded.calls.length, 1)
+      body: JSON.stringify({ model: "agnes-image-2.5-flash", prompt: "cat", mask: "any" }),
+    }),
+    /mask/
+  )
+
+  // Nested extra_body.mask rejected consistently
+  await assert.rejects(
+    adapter(base + "/images/generations", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "agnes-image-2.5-flash", prompt: "cat", extra_body: { mask: "nested" } }),
+    }),
+    /mask/
+  )
+
+  // Unsupported response_format rejected
+  await assert.rejects(
+    adapter(base + "/images/generations", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "agnes-image-2.5-flash", prompt: "cat", response_format: "pdf" }),
+    }),
+    /response_format/
+  )
+
+  // Malformed reference URI rejected
+  await assert.rejects(
+    adapter(base + "/images/generations", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "agnes-image-2.5-flash", prompt: "cat", image: ["data:image/bad;not-base64"] }),
+    }),
+    /参考图/
+  )
+
+  // Unvalidated extra_body.image sanitized when top-level image is empty
+  await adapter(base + "/images/generations", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "agnes-image-2.5-flash",
+      prompt: "cat",
+      image: [],
+      extra_body: { image: ["file:///etc/passwd"] },
+    }),
+  })
+  const payload = JSON.parse(recorded.calls[0].options.body)
+  assert.equal(payload.extra_body.image, undefined)
 })
 
 test("chat passes through unchanged; other origin and redirects are blocked", async () => {

@@ -5,11 +5,15 @@ export const imageModelID = (id) => `${id}-imagen`
 export const upstreamModelID = (id) => (typeof id === "string" ? id.replace(/-imagen$/, "") : id)
 
 async function referenceImage(value) {
-  if (typeof value === "string" && /^(https:\/\/|data:image\/)/.test(value)) return value
-  if (value instanceof Blob && /^image\//.test(value.type)) {
+  if (typeof value === "string") {
+    const s = value.trim()
+    if (/^https:\/\/[^\s/$.?#].[^\s]*$/i.test(s)) return s
+    if (/^data:image\/[a-z0-9.+_-]+;base64,[A-Za-z0-9+/=]+$/i.test(s)) return s
+  }
+  if (value instanceof Blob && typeof value.type === "string" && /^image\//.test(value.type)) {
     return `data:${value.type};base64,${Buffer.from(await value.arrayBuffer()).toString("base64")}`
   }
-  throw new Error("Agnes 参考图必须是 HTTPS URL、图像 Data URI 或图像文件")
+  throw new Error("Agnes 参考图必须是有效 HTTPS URL、图像 Data URI 或图像文件")
 }
 
 export function agnesFetch(baseURL, fetchImpl = globalThis.fetch) {
@@ -34,22 +38,34 @@ export function agnesFetch(baseURL, fetchImpl = globalThis.fetch) {
     if (request.method !== "POST") throw new Error("Agnes 图像接口仅支持 POST")
 
     const multipart = request.headers.get("content-type")?.startsWith("multipart/form-data")
-    let body
+    let body = {}
     let images = []
 
     if (multipart) {
       const form = await request.formData()
-      if (form.has("mask")) throw new Error("Agnes 未支持 mask 局部重绘；请改用参考图和提示词")
-      body = Object.fromEntries([...form.entries()].filter(([key]) => !["image", "image[]"].includes(key)))
-      images = [...form.getAll("image"), ...form.getAll("image[]")]
+      if (form.has("mask")) {
+        throw new Error("Agnes 未支持 mask 局部重绘；请改用参考图和提示词")
+      }
+      for (const [key, val] of form.entries()) {
+        if (key === "image" || key === "image[]") {
+          images.push(val)
+        } else {
+          body[key] = val
+        }
+      }
     } else {
-      body = await request.json()
-      if (!body || typeof body !== "object" || Array.isArray(body)) {
+      const parsed = await request.json()
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
         throw new Error("Agnes 图像请求必须是 JSON 对象")
       }
-      if (body.mask != null) throw new Error("Agnes 未支持 mask 局部重绘；请改用参考图和提示词")
+      body = parsed
       const value = body.image ?? body.images ?? body.extra_body?.image
       images = value == null ? [] : Array.isArray(value) ? value : [value]
+    }
+
+    // Reject mask in both top-level and extra_body
+    if (body.mask != null || body.extra_body?.mask != null) {
+      throw new Error("Agnes 未支持 mask 局部重绘；请改用参考图和提示词")
     }
 
     if (body.n != null && Number(body.n) !== 1) {
@@ -62,9 +78,16 @@ export function agnesFetch(baseURL, fetchImpl = globalThis.fetch) {
       throw new Error("Agnes extra_body 必须是对象")
     }
 
+    // Sanitize extra_body so existing unvalidated extra_body.image cannot bypass validation
     const extra = { ...body.extra_body }
+    delete extra.image
+    delete extra.mask
+
     const format = body.response_format ?? extra.response_format ?? "url"
-    const normalizedFormat = format === "b64_json" || format === "b64_json" ? "b64_json" : "url"
+    if (format !== "url" && format !== "b64_json" && format !== "b64" + "_json") {
+      throw new Error(`Agnes response_format 仅支持 url 或 b64_json，收到: ${format}`)
+    }
+    const normalizedFormat = format === "b64_json" || format === "b64" + "_json" ? "b64_json" : "url"
     extra.response_format = normalizedFormat
 
     if (images.length) {
@@ -77,12 +100,14 @@ export function agnesFetch(baseURL, fetchImpl = globalThis.fetch) {
       throw new Error("Agnes 图像编辑缺少参考图")
     }
 
+    const returnBase64 = body.return_base64 === true || body.return_base64 === "true" || body.return_base64 === "1"
+
     const payload = {
       model: upstreamModelID(body.model),
       prompt: body.prompt,
       size: body.size && body.size !== "auto" ? body.size : "1024x1024",
       ...(body.ratio ? { ratio: body.ratio } : {}),
-      ...(body.return_base64 === true ? { return_base64: true } : {}),
+      ...(returnBase64 ? { return_base64: true } : {}),
       extra_body: extra,
     }
 

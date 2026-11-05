@@ -8,7 +8,7 @@ const SITES = {
 }
 
 // Documented Agnes text models and their capabilities.
-// Flash models are free in the current trial tier.
+// Trial free pricing applies only to eligible default accounts per Agnes pricing documentation.
 const TEXT_MODELS = {
   "agnes-3.0-flash": { name: "Agnes 3.0 Flash", context: 524288, output: 65536, free: true },
   "agnes-2.5-flash": { name: "Agnes 2.5 Flash", context: 524288, output: 65536, free: true },
@@ -26,27 +26,29 @@ function modelKind(model) {
   const id = String(model?.id ?? "").trim()
   const outputs = model.modalities?.output ?? model.output_modalities
 
-  // 1. Any video models are filtered out
+  // 1. Video models are strictly excluded
   if (/^agnes-video(?:-|$)/i.test(id) || /video/i.test(id) || outputs?.includes?.("video")) {
     return "video"
   }
 
-  // 2. Any image generation models are classified as "image"
+  // 2. Explicit output modalities take precedence over name heuristics
+  if (Array.isArray(outputs) && outputs.length > 0) {
+    if (outputs.includes("image") && !outputs.includes("text")) return "image"
+    if (outputs.every((k) => k === "text")) return "text"
+    if (!outputs.includes("text") && !outputs.includes("image")) return "unsupported"
+  }
+
+  // 3. Image models identified by prefix or explicit output
   if (
     /^agnes-image(?:-|$)/i.test(id) ||
-    /(image|flux|cogview|seedream|dall-e)/i.test(id) ||
     outputs?.includes?.("image")
   ) {
     return "image"
   }
 
-  // 3. Text chat models:
-  // - Either explicit output modalities say text
-  // - Or is known text model in TEXT_MODELS
-  // - Or follows the standard Agnes model naming pattern: agnes-<version>-<tier>
-  if (Array.isArray(outputs) && outputs.length > 0 && outputs.every((k) => k === "text")) {
-    return "text"
-  }
+  // 4. Text chat models:
+  // - Known verified text model in TEXT_MODELS
+  // - Or standard Agnes text model naming pattern: agnes-<version>-<tier>
   if (Object.hasOwn(TEXT_MODELS, id) || /^agnes-(?:[0-9]|v[0-9])/i.test(id)) {
     return "text"
   }
@@ -65,15 +67,24 @@ function modelRow(model, site) {
     ? (knownImage?.name ?? model.name ?? model.id)
     : (knownText?.name ?? model.name ?? model.id)
 
-  const isFlash = /flash/i.test(model.id)
-  // Image models are NOT marked free for chat selection; this prevents
-  // the "只选免费" button from inadvertently selecting image models into chat.
-  const isFree = isImage ? false : (knownText?.free ?? isFlash)
+  // Do NOT guess free status from model name; only use explicit documented verification
+  // or explicit upstream metadata. Image models are false to prevent chat auto-selection.
+  const isFree = isImage ? false : (knownText?.free ?? (model.free === true))
   const seesImages = isImage || !!knownText || /^agnes-/i.test(model.id)
 
-  const defaultContext = /pro/i.test(model.id) ? 1048576 : 524288
-  const context = knownText?.context ?? (model.context_window || model.context_length || defaultContext)
-  const output = knownText?.output ?? (model.max_tokens || 65536)
+  // Validate limits as positive integers; do not fabricate numbers for unknown models
+  const context = knownText?.context ?? (
+    Number.isInteger(model.context_window) && model.context_window > 0 ? model.context_window :
+    Number.isInteger(model.context_length) && model.context_length > 0 ? model.context_length :
+    Number.isInteger(model.limit?.context) && model.limit.context > 0 ? model.limit.context : 0
+  )
+  const output = knownText?.output ?? (
+    Number.isInteger(model.max_tokens) && model.max_tokens > 0 ? model.max_tokens :
+    Number.isInteger(model.limit?.output) && model.limit.output > 0 ? model.limit.output : 0
+  )
+
+  const hasReasoning = !isImage && (!!knownText || model.capabilities?.reasoning === true)
+  const hasToolCall = !isImage && (!!knownText || model.capabilities?.toolcall === true)
 
   return {
     id,
@@ -93,21 +104,21 @@ function modelRow(model, site) {
     free: isFree,
     capabilities: {
       temperature: !isImage,
-      reasoning: !isImage,
+      reasoning: hasReasoning,
       attachment: seesImages,
-      toolcall: !isImage,
+      toolcall: hasToolCall,
       input: { text: true, image: seesImages, audio: false, video: false, pdf: false },
       output: { text: !isImage, image: isImage, audio: false, video: false, pdf: false },
       interleaved: false,
     },
     headers: {},
     options: {},
-    variants: isImage
-      ? {}
-      : {
+    variants: hasReasoning
+      ? {
           none: {},
           high: {},
-        },
+        }
+      : {},
   }
 }
 
