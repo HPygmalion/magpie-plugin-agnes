@@ -1,0 +1,102 @@
+// Magpie requires an ImagesAPI-recognized ID keyword (such as 'imagen') in addition to output.image
+// to automatically classify and surface the model into the dedicated '图像模型' drawer.
+// api.id and upstreamModelID ensure the real upstream model ID is used on the wire.
+export const imageModelID = (id) => `${id}-imagen`
+export const upstreamModelID = (id) => (typeof id === "string" ? id.replace(/-imagen$/, "") : id)
+
+async function referenceImage(value) {
+  if (typeof value === "string" && /^(https:\/\/|data:image\/)/.test(value)) return value
+  if (value instanceof Blob && /^image\//.test(value.type)) {
+    return `data:${value.type};base64,${Buffer.from(await value.arrayBuffer()).toString("base64")}`
+  }
+  throw new Error("Agnes 参考图必须是 HTTPS URL、图像 Data URI 或图像文件")
+}
+
+export function agnesFetch(baseURL, fetchImpl = globalThis.fetch) {
+  return async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input)
+    const base = new URL(baseURL + "/")
+    if (url.origin !== base.origin || !url.pathname.startsWith(base.pathname)) {
+      throw new Error("Agnes 插件拒绝向其他站点发送凭据")
+    }
+
+    // Pass through chat completions directly
+    if (url.pathname === base.pathname + "chat/completions") {
+      return fetchImpl(input, { ...init, redirect: "error" })
+    }
+
+    // Handle image generation and editing requests
+    if (![base.pathname + "images/generations", base.pathname + "images/edits"].includes(url.pathname)) {
+      throw new Error(`Agnes 插件仅支持 chat/completions 与 images/generations 接口，收到: ${url.pathname}`)
+    }
+
+    const request = new Request(input, init)
+    if (request.method !== "POST") throw new Error("Agnes 图像接口仅支持 POST")
+
+    const multipart = request.headers.get("content-type")?.startsWith("multipart/form-data")
+    let body
+    let images = []
+
+    if (multipart) {
+      const form = await request.formData()
+      if (form.has("mask")) throw new Error("Agnes 未支持 mask 局部重绘；请改用参考图和提示词")
+      body = Object.fromEntries([...form.entries()].filter(([key]) => !["image", "image[]"].includes(key)))
+      images = [...form.getAll("image"), ...form.getAll("image[]")]
+    } else {
+      body = await request.json()
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        throw new Error("Agnes 图像请求必须是 JSON 对象")
+      }
+      if (body.mask != null) throw new Error("Agnes 未支持 mask 局部重绘；请改用参考图和提示词")
+      const value = body.image ?? body.images ?? body.extra_body?.image
+      images = value == null ? [] : Array.isArray(value) ? value : [value]
+    }
+
+    if (body.n != null && Number(body.n) !== 1) {
+      throw new Error("Agnes 当前仅支持单张生成 (n=1)")
+    }
+    if (typeof body.model !== "string" || !body.model.trim() || typeof body.prompt !== "string" || !body.prompt.trim()) {
+      throw new Error("Agnes 图像请求缺少必填的 model 或 prompt")
+    }
+    if (body.extra_body != null && (typeof body.extra_body !== "object" || Array.isArray(body.extra_body))) {
+      throw new Error("Agnes extra_body 必须是对象")
+    }
+
+    const extra = { ...body.extra_body }
+    const format = body.response_format ?? extra.response_format ?? "url"
+    const normalizedFormat = format === "b64_json" || format === "b64_json" ? "b64_json" : "url"
+    extra.response_format = normalizedFormat
+
+    if (images.length) {
+      extra.image = await Promise.all(
+        images.map((value) => referenceImage(value?.image_url?.url ?? value?.image_url ?? value?.url ?? value))
+      )
+    }
+
+    if (url.pathname.endsWith("/edits") && !images.length) {
+      throw new Error("Agnes 图像编辑缺少参考图")
+    }
+
+    const payload = {
+      model: upstreamModelID(body.model),
+      prompt: body.prompt,
+      size: body.size && body.size !== "auto" ? body.size : "1024x1024",
+      ...(body.ratio ? { ratio: body.ratio } : {}),
+      ...(body.return_base64 === true ? { return_base64: true } : {}),
+      extra_body: extra,
+    }
+
+    const headers = new Headers(request.headers)
+    headers.set("content-type", "application/json")
+    headers.delete("content-length")
+
+    url.pathname = base.pathname + "images/generations"
+    return fetchImpl(url.href, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      signal: request.signal,
+      redirect: "error",
+    })
+  }
+}
