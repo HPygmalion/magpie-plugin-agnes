@@ -1,3 +1,5 @@
+import { agnesFetch, imageModelID, upstreamModelID } from "./images.mjs"
+
 const LOGO = "https://www.agnes-ai.com/images/biglogo.png"
 
 const SITES = {
@@ -5,48 +7,68 @@ const SITES = {
   cn: { id: "agens-cn", name: "Agnes AI · 国内版 API", baseURL: "https://api.agnes-ai.cn/v1" },
 }
 
-// Only documented Agnes text models get inferred capabilities and limits.
-// Flash models are currently free under the trial tier.
+// Documented Agnes text models and their capabilities.
+// Flash models are free in the current trial tier.
 const TEXT_MODELS = {
-  "agnes-3.0-flash": { context: 524288, output: 65536, free: true },
-  "agnes-2.5-flash": { context: 524288, output: 65536, free: true },
-  "agnes-2.5-pro": { context: 1048576, output: 65536, free: false },
-  "agnes-2.5-pro-beta": { context: 1048576, output: 65536, free: false },
+  "agnes-3.0-flash": { name: "Agnes 3.0 Flash", context: 524288, output: 65536, free: true },
+  "agnes-2.5-flash": { name: "Agnes 2.5 Flash", context: 524288, output: 65536, free: true },
+  "agnes-2.5-pro": { name: "Agnes 2.5 Pro", context: 1048576, output: 65536, free: false },
+  "agnes-2.5-pro-beta": { name: "Agnes 2.5 Pro Beta", context: 1048576, output: 65536, free: false },
 }
 
-function isChatModel(model) {
-  if (/^agnes-(?:image|video)(?:-|$)/i.test(model.id)) return false
+// Documented Agnes image generation models.
+// Image models in trial tier are free.
+const IMAGE_MODELS = {
+  "agnes-image-2.5-flash": { name: "Agnes Image 2.5 Flash", free: true },
+  "agnes-image-2.1-flash": { name: "Agnes Image 2.1 Flash", free: true },
+}
+
+function modelKind(model) {
   const outputs = model.modalities?.output ?? model.output_modalities
-  if (outputs !== undefined) {
-    return Array.isArray(outputs) && outputs.length > 0 && outputs.every((kind) => kind === "text")
-  }
-  // Unknown IDs without modality metadata stay hidden rather than leak generators into chat.
-  return Object.hasOwn(TEXT_MODELS, model.id)
+  if (/^agnes-video(?:-|$)/i.test(model.id) || outputs?.includes?.("video")) return "video"
+  if (/^agnes-image(?:-|$)/i.test(model.id) || outputs?.includes?.("image")) return "image"
+  if (Array.isArray(outputs) && outputs.length > 0 && outputs.every((k) => k === "text")) return "text"
+  if (Object.hasOwn(TEXT_MODELS, model.id)) return "text"
+  return "unsupported"
 }
 
 function modelRow(model, site) {
-  const known = TEXT_MODELS[model.id]
-  const seesImages = !!known
+  const kind = modelKind(model)
+  const isImage = kind === "image"
+  const knownText = TEXT_MODELS[model.id]
+  const knownImage = IMAGE_MODELS[model.id]
+
+  const id = isImage ? imageModelID(model.id) : model.id
+  const displayName = isImage
+    ? (knownImage?.name ?? model.name ?? model.id)
+    : (knownText?.name ?? model.name ?? model.id)
+
+  const isFree = isImage ? true : (knownText?.free === true)
+  const seesImages = isImage || !!knownText
+
   return {
-    id: model.id,
+    id,
     providerID: site.id,
-    name: typeof model.name === "string" && model.name ? model.name : model.id,
+    name: displayName,
     api: { id: model.id, url: site.baseURL, npm: "@ai-sdk/openai-compatible" },
     status: "active",
     limit: {
-      context: known?.context ?? 0,
-      input: known?.context ?? 0,
-      output: known?.output ?? 0,
+      context: knownText?.context ?? 0,
+      input: knownText?.context ?? 0,
+      output: knownText?.output ?? 0,
     },
-    modalities: { input: seesImages ? ["text", "image"] : ["text"], output: ["text"] },
-    free: known?.free === true,
+    modalities: {
+      input: seesImages ? ["text", "image"] : ["text"],
+      output: isImage ? ["image"] : ["text"],
+    },
+    free: isFree,
     capabilities: {
-      temperature: true,
-      reasoning: !!known,
+      temperature: !isImage,
+      reasoning: !isImage && !!knownText,
       attachment: seesImages,
-      toolcall: !!known,
+      toolcall: !isImage && !!knownText,
       input: { text: true, image: seesImages, audio: false, video: false, pdf: false },
-      output: { text: true, image: false, audio: false, video: false, pdf: false },
+      output: { text: !isImage, image: isImage, audio: false, video: false, pdf: false },
       interleaved: false,
     },
     headers: {},
@@ -73,6 +95,9 @@ function createPlugin(site, fetchImpl = globalThis.fetch) {
           ...Object.fromEntries(
             Object.keys(TEXT_MODELS).map((id) => [id, modelRow({ id }, site)])
           ),
+          ...Object.fromEntries(
+            Object.keys(IMAGE_MODELS).map((id) => [imageModelID(id), modelRow({ id }, site)])
+          ),
           ...(cfg.provider[site.id]?.models ?? {}),
         },
       }
@@ -87,13 +112,7 @@ function createPlugin(site, fetchImpl = globalThis.fetch) {
         return {
           baseURL: site.baseURL,
           apiKey: key,
-          fetch(input, init) {
-            const url = new URL(input instanceof Request ? input.url : input)
-            if (url.origin + url.pathname !== `${site.baseURL}/chat/completions`) {
-              throw new Error("Agnes 插件仅允许本站 Chat Completions 请求")
-            }
-            return fetchImpl(input, { ...init, redirect: "error" })
-          },
+          fetch: agnesFetch(site.baseURL, fetchImpl),
         }
       },
     },
@@ -118,7 +137,7 @@ function createPlugin(site, fetchImpl = globalThis.fetch) {
         }
         const rows = body.data
           .map((m) => ({ ...m, id: m.id.trim() }))
-          .filter(isChatModel)
+          .filter((m) => ["text", "image"].includes(modelKind(m)))
           .map((m) => modelRow(m, site))
         return Object.fromEntries(rows.map((row) => [row.id, row]))
       },
@@ -128,4 +147,14 @@ function createPlugin(site, fetchImpl = globalThis.fetch) {
 
 export const AgnesAIPlugin = async () => createPlugin(SITES.global)
 export const AgnesCNPlugin = async () => createPlugin(SITES.cn)
-export const _internal = { SITES, LOGO, createPlugin, isChatModel, TEXT_MODELS }
+export const _internal = {
+  SITES,
+  LOGO,
+  createPlugin,
+  modelKind,
+  modelRow,
+  TEXT_MODELS,
+  IMAGE_MODELS,
+  imageModelID,
+  upstreamModelID,
+}

@@ -1,15 +1,33 @@
 {
   "name": "magpie-plugin-agnes",
-  "version": "0.1.0",
-  "description": "Agnes AI 国内版与国际版 API Key 接入；仅提供文本输出模型，排除图像和视频生成模型",
-  "repository": { "type": "git", "url": "https://github.com/HPygmalion/magpie-plugin-agnes.git" },
+  "version": "0.2.0",
+  "description": "Agnes AI 国内版与国际版 API Key 插件，支持对话模型分类与独立图像模型识别，排除视频模型",
   "type": "module",
   "main": "./opencode.mjs",
-  "exports": { ".": "./opencode.mjs" },
-  "files": ["index.mjs", "opencode.mjs", "README.md", "LICENSE"],
-  "keywords": ["magpie-plugin", "magpie", "opencode-plugin", "agnes-ai"],
+  "exports": {
+    ".": "./opencode.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "images.mjs",
+    "opencode.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "magpie-plugin",
+    "magpie",
+    "opencode-plugin",
+    "agnes-ai"
+  ],
   "license": "MIT",
-  "scripts": { "test": "node --test" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HPygmalion/magpie-plugin-agnes.git"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
   "magpie": {
     "name": "Agnes AI · API",
     "icon": "https://www.agnes-ai.com/images/biglogo.png"
