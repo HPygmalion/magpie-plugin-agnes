@@ -5,9 +5,9 @@ Agnes AI 国内版 / 国际版 API Key 插件，面向 Magpie 的 OpenCode 1.x �
 | 入口 | Provider ID | API Base URL | 默认模型 |
 | --- | --- | --- | --- |
 | 国际版 API | `agnes-ai` | `https://apihub.agnes-ai.com/v1` | 内置核心对话模型与生图模型 |
-| 国内版 API | `agens-cn` | `https://api.agnes-ai.cn/v1` | 内置核心对话模型与生图模型 |
+| 国内版 API | `agnes-cn` | `https://api.agnes-ai.cn/v1` | 内置核心对话模型与生图模型 |
 
-国内 ID 按需求保留为 **`agens-cn`**（不是 `agnes-cn`）。两个入口分别填写对应站点的 API Key。密钥由 Magpie 统一保存，插件不另写凭据文件。
+两个入口分别填写对应站点的 API Key。密钥由 Magpie 统一保存，插件不另写凭据文件。
 
 ---
 

@@ -1,6 +1,6 @@
 {
   "name": "magpie-plugin-agnes",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Agnes AI 国内版与国际版 API Key 插件，支持对话模型分类与独立图像模型识别，排除视频模型",
   "type": "module",
   "main": "./opencode.mjs",

@@ -4,7 +4,7 @@ const LOGO = "https://www.agnes-ai.com/images/biglogo.png"
 
 const SITES = {
   global: { id: "agnes-ai", name: "Agnes AI · 国际版 API", baseURL: "https://apihub.agnes-ai.com/v1" },
-  cn: { id: "agens-cn", name: "Agnes AI · 国内版 API", baseURL: "https://api.agnes-ai.cn/v1" },
+  cn: { id: "agnes-cn", name: "Agnes AI · 国内版 API", baseURL: "https://api.agnes-ai.cn/v1" },
 }
 
 // Documented Agnes text models and their capabilities.
