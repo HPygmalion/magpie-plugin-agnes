@@ -10,5 +10,8 @@
   "keywords": ["magpie-plugin", "magpie", "opencode-plugin", "agnes-ai"],
   "license": "MIT",
   "scripts": { "test": "node --test" },
-  "magpie": { "name": "Agnes AI · API" }
+  "magpie": {
+    "name": "Agnes AI · API",
+    "icon": "https://www.agnes-ai.com/images/biglogo.png"
+  }
 }

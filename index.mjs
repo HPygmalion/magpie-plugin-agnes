@@ -1,14 +1,17 @@
+const LOGO = "https://www.agnes-ai.com/images/biglogo.png"
+
 const SITES = {
   global: { id: "agnes-ai", name: "Agnes AI · 国际版 API", baseURL: "https://apihub.agnes-ai.com/v1" },
   cn: { id: "agens-cn", name: "Agnes AI · 国内版 API", baseURL: "https://api.agnes-ai.cn/v1" },
 }
 
 // Only documented Agnes text models get inferred capabilities and limits.
+// Flash models are currently free under the trial tier.
 const TEXT_MODELS = {
-  "agnes-3.0-flash": { context: 524288, output: 65536 },
-  "agnes-2.5-flash": { context: 524288, output: 65536 },
-  "agnes-2.5-pro": { context: 1048576, output: 65536 },
-  "agnes-2.5-pro-beta": { context: 1048576, output: 65536 },
+  "agnes-3.0-flash": { context: 524288, output: 65536, free: true },
+  "agnes-2.5-flash": { context: 524288, output: 65536, free: true },
+  "agnes-2.5-pro": { context: 1048576, output: 65536, free: false },
+  "agnes-2.5-pro-beta": { context: 1048576, output: 65536, free: false },
 }
 
 function isChatModel(model) {
@@ -32,6 +35,7 @@ function modelRow(model, site) {
     status: "active",
     limit: { context: known?.context ?? 0, output: known?.output ?? 0 },
     modalities: { input: seesImages ? ["text", "image"] : ["text"], output: ["text"] },
+    free: known?.free === true,
     capabilities: {
       temperature: true,
       reasoning: !!known,
@@ -58,13 +62,20 @@ function createPlugin(site, fetchImpl = globalThis.fetch) {
       cfg.provider[site.id] = {
         ...cfg.provider[site.id],
         name: site.name,
+        icon: LOGO,
         npm: "@ai-sdk/openai-compatible",
         api: site.baseURL,
-        models: {},
+        models: {
+          ...Object.fromEntries(
+            Object.keys(TEXT_MODELS).map((id) => [id, modelRow({ id }, site)])
+          ),
+          ...(cfg.provider[site.id]?.models ?? {}),
+        },
       }
     },
     auth: {
       provider: site.id,
+      icon: LOGO,
       methods: [{ type: "api", label: site.name + " · API Key" }],
       async loader(getAuth) {
         const key = apiKeyOf(await getAuth())
@@ -113,4 +124,4 @@ function createPlugin(site, fetchImpl = globalThis.fetch) {
 
 export const AgnesAIPlugin = async () => createPlugin(SITES.global)
 export const AgnesCNPlugin = async () => createPlugin(SITES.cn)
-export const _internal = { SITES, createPlugin, isChatModel }
+export const _internal = { SITES, LOGO, createPlugin, isChatModel, TEXT_MODELS }

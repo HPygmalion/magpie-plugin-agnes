@@ -3,11 +3,11 @@ import { test } from "node:test"
 import { _internal } from "./index.mjs"
 import * as entry from "./opencode.mjs"
 
-const { SITES, createPlugin } = _internal
+const { SITES, LOGO, createPlugin, TEXT_MODELS } = _internal
 const auth = { type: "api", key: " test-key " }
 
 for (const site of Object.values(SITES)) {
-  test(`${site.id}: API key, correct endpoint, text only without manual selection`, async () => {
+  test(`${site.id}: logo, bootstrap models, API key, text only with free & context badges`, async () => {
     const calls = []
     const plugin = createPlugin(site, async (url, options) => {
       calls.push({ url, options })
@@ -29,17 +29,28 @@ for (const site of Object.values(SITES)) {
     const cfg = {}
     await plugin.config(cfg)
     assert.equal(cfg.provider[site.id].api, site.baseURL)
-    assert.deepEqual(cfg.provider[site.id].models, {})
+    assert.equal(cfg.provider[site.id].icon, LOGO)
+    // Default models must not be empty before clicking refresh
+    assert.deepEqual(Object.keys(cfg.provider[site.id].models), Object.keys(TEXT_MODELS))
+    assert.equal(cfg.provider[site.id].models["agnes-3.0-flash"].free, true)
+    assert.equal(cfg.provider[site.id].models["agnes-3.0-flash"].limit.context, 524288)
+    assert.equal(cfg.provider[site.id].models["agnes-2.5-pro"].free, false)
+    assert.equal(cfg.provider[site.id].models["agnes-2.5-pro"].limit.context, 1048576)
+
     assert.equal(plugin.auth.provider, site.id)
+    assert.equal(plugin.auth.icon, LOGO)
     assert.deepEqual(plugin.auth.methods.map((m) => m.type), ["api"])
+
     const loaded = await plugin.auth.loader(async () => auth)
     assert.equal(loaded.apiKey, "test-key")
     assert.equal(loaded.baseURL, site.baseURL)
+
     const models = await plugin.provider.models({}, { auth })
     assert.deepEqual(Object.keys(models), ["agnes-3.0-flash", "agnes-2.5-pro", "explicit-text"])
     assert.equal(calls[0].url, site.baseURL + "/models")
     assert.equal(calls[0].options.headers.authorization, "Bearer test-key")
     assert.equal(calls[0].options.redirect, "error")
+
     for (const row of Object.values(models)) {
       assert.equal(row.providerID, site.id)
       assert.deepEqual(row.modalities.output, ["text"])
@@ -47,6 +58,10 @@ for (const site of Object.values(SITES)) {
       assert.equal(row.capabilities.output.video, false)
     }
     assert.equal(models["agnes-3.0-flash"].capabilities.input.image, true)
+    assert.equal(models["agnes-3.0-flash"].free, true)
+    assert.equal(models["agnes-3.0-flash"].limit.context, 524288)
+    assert.equal(models["agnes-2.5-pro"].free, false)
+    assert.equal(models["agnes-2.5-pro"].limit.context, 1048576)
     assert.equal(models["explicit-text"].capabilities.reasoning, false)
   })
 }
