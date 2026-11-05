@@ -33,7 +33,11 @@ function modelRow(model, site) {
     name: typeof model.name === "string" && model.name ? model.name : model.id,
     api: { id: model.id, url: site.baseURL, npm: "@ai-sdk/openai-compatible" },
     status: "active",
-    limit: { context: known?.context ?? 0, output: known?.output ?? 0 },
+    limit: {
+      context: known?.context ?? 0,
+      input: known?.context ?? 0,
+      output: known?.output ?? 0,
+    },
     modalities: { input: seesImages ? ["text", "image"] : ["text"], output: ["text"] },
     free: known?.free === true,
     capabilities: {
